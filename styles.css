@@ -12,21 +12,20 @@ h1 {
 
 #controls {
     display: flex;
+    flex-wrap: wrap;
     justify-content: center;
     margin-bottom: 10px;
 }
 
 #controls button, #controls select {
-    margin: 0 5px;
+    margin: 5px;
     padding: 10px;
     font-size: 16px;
 }
 
-/* Scanner Container */
 #scannerContainer {
     position: relative;
     width: 100%;
-    max-width: 100%;
     overflow: hidden;
 }
 
@@ -41,9 +40,7 @@ h1 {
     touch-action: none;
 }
 
-/* Debug Container */
 #debugContainer {
-    display: none; /* Hide by default */
     text-align: center;
     margin-top: 10px;
 }
@@ -54,7 +51,6 @@ h1 {
     border: 1px solid #ccc;
 }
 
-/* Output Container */
 #outputContainer {
     padding: 10px;
 }
@@ -77,4 +73,3 @@ h1 {
         height: 40vh;
     }
 }
-
