@@ -256,7 +256,7 @@
         }
 
         // Function to capture frame and perform OCR
-        function captureAndOCR() {
+        async function captureAndOCR() {
             if (video.readyState !== video.HAVE_ENOUGH_DATA) {
                 console.warn('Video not ready');
                 return;
@@ -319,14 +319,18 @@
             console.log('Debugging canvas updated.');
 
             // Convert the canvas to a blob for OCR
-            scaledCanvas.toBlob(async (blob) => {
-                if (blob) {
-                    console.log('Blob created for OCR.');
-                    await performOCR(blob);
-                } else {
-                    console.warn('Blob conversion failed.');
-                }
-            }, 'image/png');
+            const blob = await new Promise((resolve) => {
+                scaledCanvas.toBlob((blob) => {
+                    resolve(blob);
+                }, 'image/png');
+            });
+
+            if (blob) {
+                console.log('Blob created for OCR.');
+                await performOCR(blob);
+            } else {
+                console.warn('Blob conversion failed.');
+            }
         }
 
         // Function to start scanning
