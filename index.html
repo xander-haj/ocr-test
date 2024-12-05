@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OCR Camera Scanner</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Include Interact.js via CDN for touch gestures -->
+    <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
+    <!-- Include Tesseract.js via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2/dist/tesseract.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <h1>OCR Camera Scanner</h1>
+    <div id="controls">
+        <button id="startScanner">Start Scanner</button>
+        <select id="languageSelect">
+            <option value="eng">English</option>
+            <!-- Add more language options as needed -->
+        </select>
+    </div>
+    <div id="scannerContainer">
+        <video id="cameraFeed" autoplay playsinline></video>
+        <div id="roi"></div>
+    </div>
+    <div id="debugContainer">
+        <canvas id="debugCanvas"></canvas>
+    </div>
+    <div id="outputContainer">
+        <h2>Extracted Text:</h2>
+        <textarea id="outputText" readonly></textarea>
+    </div>
+    <!-- Include the main script -->
+    <script src="script.js"></script>
+</body>
+</html>
