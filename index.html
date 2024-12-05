@@ -250,6 +250,9 @@
         const originalConsoleLog = console.log;
         const originalConsoleError = console.error;
 
+        // Flag to check if camera options have been populated
+        let cameraOptionsPopulated = false;
+
         // Function to override console logs
         function overrideConsole() {
             console.log = function(message) {
@@ -302,21 +305,29 @@
                     cameraSelect.appendChild(option);
                 });
 
-                // Prioritize rear (environment) camera
-                const defaultCamera = videoDevices.find(device => device.label.toLowerCase().includes('back')) || videoDevices[0];
-
-                if (defaultCamera) {
-                    selectedCameraId = defaultCamera.deviceId;
+                // If the user has already selected a camera, preserve the selection
+                if (selectedCameraId && videoDevices.some(device => device.deviceId === selectedCameraId)) {
                     cameraSelect.value = selectedCameraId;
                 } else {
-                    showError('No cameras found on this device.');
-                    startButton.disabled = true;
+                    // Prioritize rear (environment) camera
+                    const defaultCamera = videoDevices.find(device => device.label.toLowerCase().includes('back')) || videoDevices[0];
+
+                    if (defaultCamera) {
+                        selectedCameraId = defaultCamera.deviceId;
+                        cameraSelect.value = selectedCameraId;
+                    } else {
+                        showError('No cameras found on this device.');
+                        startButton.disabled = true;
+                    }
                 }
 
                 console.log('Camera options populated.');
 
                 // Populate resolution options after cameras are loaded
                 populateResolutionOptions();
+
+                // Set flag to indicate that camera options have been populated
+                cameraOptionsPopulated = true;
 
             } catch (err) {
                 console.error('Error enumerating devices:', err);
@@ -594,9 +605,11 @@
             console.log('Starting scanner...');
 
             try {
-                // Request camera permissions here
-                await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                await populateCameraOptions();
+                // Request camera permissions here if not already granted
+                if (!cameraOptionsPopulated) {
+                    await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    await populateCameraOptions();
+                }
 
                 await startVideoStream();
 
@@ -671,14 +684,20 @@
         cameraSelect.addEventListener('change', () => {
             selectedCameraId = cameraSelect.value;
             console.log('Camera changed:', selectedCameraId);
-            // Repopulate resolutions (if device-specific resolutions are implemented)
-            // For now, resolutions remain the same
+            // If scanning is active, restart the video stream with the new camera
+            if (scanning) {
+                startVideoStream();
+            }
         });
 
         // Handle resolution selection change
         resolutionSelect.addEventListener('change', () => {
             selectedResolution = resolutionSelect.value;
             console.log('Resolution changed:', selectedResolution);
+            // If scanning is active, restart the video stream with the new resolution
+            if (scanning) {
+                startVideoStream();
+            }
         });
 
         // Handle language selection change
@@ -695,8 +714,19 @@
             }
         });
 
-        // Initialize resolution and language on page load
+        // Initialize camera options on page load
         window.addEventListener('DOMContentLoaded', async () => {
+            // Request camera permissions when the page loads to populate device labels
+            try {
+                await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                await populateCameraOptions();
+                cameraOptionsPopulated = true;
+            } catch (err) {
+                console.error('Camera permission denied:', err);
+                showError('Camera access was denied. Please allow camera permissions.');
+                startButton.disabled = true;
+            }
+
             populateResolutionOptions();
             selectedResolution = resolutionSelect.value;
             selectedLanguage = languageSelect.value;
