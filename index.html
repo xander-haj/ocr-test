@@ -61,6 +61,14 @@
             text-align: center;
         }
 
+        /* Dropdown Menus */
+        select {
+            padding: 8px;
+            font-size: 16px;
+            margin: 0 10px;
+            border-radius: 4px;
+        }
+
         /* Button Styling */
         #start-button, #stop-button {
             padding: 10px 20px;
@@ -147,6 +155,26 @@
         <video id="video" autoplay playsinline></video>
         <div id="overlay"></div>
         <div id="controls">
+            <!-- Camera Selection -->
+            <label for="cameraSelect">Camera:</label>
+            <select id="cameraSelect"></select>
+
+            <!-- Resolution Selection -->
+            <label for="resolutionSelect">Resolution:</label>
+            <select id="resolutionSelect">
+                <option value="1920x1080">1920x1080</option>
+                <option value="1280x720">1280x720</option>
+                <option value="640x480">640x480</option>
+            </select>
+
+            <!-- Worker Controls -->
+            <label for="languageSelect">Language:</label>
+            <select id="languageSelect">
+                <option value="eng">English</option>
+                <option value="spa">Spanish</option>
+                <!-- Add more languages as needed -->
+            </select>
+
             <button id="start-button">Start Scanner</button>
             <button id="stop-button" disabled>Stop Scanner</button>
             <textarea id="output" placeholder="Extracted text will appear here..." readonly></textarea>
@@ -167,12 +195,19 @@
         const errorMsg = document.getElementById('errorMsg');
         const debugCanvas = document.getElementById('debugCanvas');
         const debugWindow = document.getElementById('debugger');
+        const cameraSelect = document.getElementById('cameraSelect');
+        const resolutionSelect = document.getElementById('resolutionSelect');
+        const languageSelect = document.getElementById('languageSelect');
 
         let stream = null;
         let scanning = false;
         let lastScanTime = 0;
         const MIN_INTERVAL = 1000; // 1 second between scans
         const MIN_CONFIDENCE = 60; // Minimum confidence percentage to accept OCR result
+
+        let selectedCameraId = null;
+        let selectedResolution = null;
+        let selectedLanguage = 'eng';
 
         // Pre-created canvases for reuse
         const videoCanvas = document.createElement('canvas');
@@ -221,20 +256,73 @@
             }, 5000);
         }
 
-        // Function to initialize camera on page load
-        async function initCamera() {
+        // Function to get list of cameras and populate the camera select dropdown
+        async function populateCameraOptions() {
             try {
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { exact: "environment" } }, // Prefer rear camera
-                    audio: false
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+                cameraSelect.innerHTML = ''; // Clear existing options
+
+                videoDevices.forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.text = device.label || `Camera ${cameraSelect.length + 1}`;
+                    cameraSelect.appendChild(option);
                 });
-                console.log('Camera permissions requested on page load.');
-                // Do not set video.srcObject here; it will be set when scanning starts
+
+                if (videoDevices.length > 0) {
+                    selectedCameraId = videoDevices[0].deviceId;
+                } else {
+                    showError('No cameras found on this device.');
+                    startButton.disabled = true;
+                }
+
+                console.log('Camera options populated.');
             } catch (err) {
-                console.error('Camera initialization failed:', err);
-                showError('Unable to access the rear camera. Please check permissions or try a different device.');
-                // Disable start button if permissions are denied
+                console.error('Error enumerating devices:', err);
+                showError('An error occurred while accessing cameras.');
                 startButton.disabled = true;
+            }
+        }
+
+        // Function to initialize camera on page load
+        async function initCameraPermissions() {
+            try {
+                await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                console.log('Camera permissions requested on page load.');
+            } catch (err) {
+                console.error('Camera permission denied:', err);
+                showError('Camera access was denied. Please allow camera permissions.');
+                startButton.disabled = true;
+            }
+        }
+
+        // Function to start the video stream with selected camera and resolution
+        async function startVideoStream() {
+            try {
+                if (stream) {
+                    // Stop existing stream
+                    stream.getTracks().forEach(track => track.stop());
+                }
+
+                const resolution = selectedResolution.split('x');
+                const constraints = {
+                    video: {
+                        deviceId: selectedCameraId ? { exact: selectedCameraId } : undefined,
+                        width: { exact: parseInt(resolution[0]) },
+                        height: { exact: parseInt(resolution[1]) }
+                    },
+                    audio: false
+                };
+
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+                console.log('Video stream started with constraints:', constraints);
+            } catch (err) {
+                console.error('Error starting video stream:', err);
+                showError('Unable to start video stream with selected settings.');
+                stopScanning();
             }
         }
 
@@ -278,7 +366,7 @@
             try {
                 const { data: { text, confidence } } = await Tesseract.recognize(
                     blob,
-                    'eng',
+                    selectedLanguage,
                     { 
                         logger: m => console.log(`[Tesseract.js] ${m.status}: ${Math.round(m.progress * 100)}%`)
                     }
@@ -409,10 +497,14 @@
         // Function to start scanning
         async function startScanning() {
             if (scanning) return;
-            if (!stream) {
-                showError('Camera stream not initialized.');
-                return;
-            }
+
+            // Get selected options
+            selectedCameraId = cameraSelect.value;
+            selectedResolution = resolutionSelect.value;
+            selectedLanguage = languageSelect.value;
+
+            // Clear the debug window
+            debugWindow.value = '';
 
             // Override console functions
             overrideConsole();
@@ -423,7 +515,7 @@
             console.log('Starting scanner...');
 
             try {
-                video.srcObject = stream;
+                await startVideoStream();
                 video.style.display = 'block'; // Show the video element
                 overlay.style.display = 'block'; // Show the overlay
                 debugCanvas.style.display = 'block'; // Show the debug canvas
@@ -462,8 +554,16 @@
             debugCanvas.style.display = 'none';
 
             // Stop video playback
-            video.pause();
-            video.srcObject = null;
+            if (video.srcObject) {
+                video.pause();
+                video.srcObject = null;
+            }
+
+            // Stop all video tracks
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
 
             // Restore original console functions
             restoreConsole();
@@ -483,9 +583,37 @@
             stopScanning();
         });
 
-        // Initialize camera on page load to prompt for permissions
-        window.addEventListener('DOMContentLoaded', () => {
-            initCamera();
+        // Handle camera selection change
+        cameraSelect.addEventListener('change', () => {
+            selectedCameraId = cameraSelect.value;
+            console.log('Camera changed:', selectedCameraId);
+            if (scanning) {
+                startScanning(); // Restart scanning with new camera
+            }
+        });
+
+        // Handle resolution selection change
+        resolutionSelect.addEventListener('change', () => {
+            selectedResolution = resolutionSelect.value;
+            console.log('Resolution changed:', selectedResolution);
+            if (scanning) {
+                startScanning(); // Restart scanning with new resolution
+            }
+        });
+
+        // Handle language selection change
+        languageSelect.addEventListener('change', () => {
+            selectedLanguage = languageSelect.value;
+            console.log('Language changed:', selectedLanguage);
+            // No need to restart scanning, language will be applied in next OCR
+        });
+
+        // Initialize camera permissions and populate device options on page load
+        window.addEventListener('DOMContentLoaded', async () => {
+            await initCameraPermissions();
+            await populateCameraOptions();
+            selectedResolution = resolutionSelect.value;
+            selectedLanguage = languageSelect.value;
         });
 
         // Clean up on page unload
