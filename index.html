@@ -14,9 +14,16 @@
     <h1>OCR Camera Scanner</h1>
     <div id="controls">
         <button id="startScanner">Start Scanner</button>
+        <select id="cameraSelect"></select>
+        <select id="resolutionSelect"></select>
         <select id="languageSelect">
             <option value="eng">English</option>
             <!-- Add more language options as needed -->
+        </select>
+        <select id="workerSelect">
+            <option value="1">1 Worker</option>
+            <option value="2">2 Workers</option>
+            <option value="4">4 Workers</option>
         </select>
     </div>
     <div id="scannerContainer">
@@ -24,6 +31,7 @@
         <div id="roi"></div>
     </div>
     <div id="debugContainer">
+        <h2>Debug Viewport:</h2>
         <canvas id="debugCanvas"></canvas>
     </div>
     <div id="outputContainer">
