@@ -180,6 +180,10 @@
             <label for="cameraSelect">Camera:</label>
             <select id="cameraSelect"></select>
 
+            <!-- Resolution Selection -->
+            <label for="resolutionSelect">Resolution:</label>
+            <select id="resolutionSelect"></select>
+
             <!-- Language Selection -->
             <label for="languageSelect">Language:</label>
             <select id="languageSelect">
@@ -209,6 +213,7 @@
         const debugCanvas = document.getElementById('debugCanvas');
         const debugWindow = document.getElementById('debugger');
         const cameraSelect = document.getElementById('cameraSelect');
+        const resolutionSelect = document.getElementById('resolutionSelect');
         const languageSelect = document.getElementById('languageSelect');
         const loadingSpinner = document.getElementById('loadingSpinner');
 
@@ -219,6 +224,7 @@
         const MIN_CONFIDENCE = 60; // Minimum confidence percentage to accept OCR result
 
         let selectedCameraId = null;
+        let selectedResolution = null;
         let selectedLanguage = 'eng';
 
         // Pre-created canvases for reuse
@@ -295,11 +301,40 @@
                 }
 
                 console.log('Camera options populated.');
+
+                // Populate resolution options after cameras are loaded
+                await populateResolutionOptions();
+
             } catch (err) {
                 console.error('Error enumerating devices:', err);
                 showError('An error occurred while accessing cameras.');
                 startButton.disabled = true;
             }
+        }
+
+        // Function to populate resolution options
+        async function populateResolutionOptions() {
+            // Common resolutions to try
+            const commonResolutions = [
+                { width: 1920, height: 1080 },
+                { width: 1280, height: 720 },
+                { width: 640, height: 480 },
+                { width: 320, height: 240 }
+            ];
+
+            resolutionSelect.innerHTML = ''; // Clear existing options
+
+            // Since we cannot reliably get supported resolutions, we'll use common ones
+            commonResolutions.forEach(res => {
+                const option = document.createElement('option');
+                option.value = `${res.width}x${res.height}`;
+                option.text = `${res.width}x${res.height}`;
+                resolutionSelect.appendChild(option);
+            });
+
+            selectedResolution = resolutionSelect.value;
+
+            console.log('Resolution options populated.');
         }
 
         // Function to initialize camera permissions
@@ -314,7 +349,7 @@
             }
         }
 
-        // Function to start the video stream with selected camera
+        // Function to start the video stream with selected camera and resolution
         async function startVideoStream() {
             try {
                 if (stream) {
@@ -322,12 +357,13 @@
                     stream.getTracks().forEach(track => track.stop());
                 }
 
+                const [width, height] = selectedResolution.split('x').map(Number);
+
                 const constraints = {
                     video: {
                         deviceId: selectedCameraId ? { exact: selectedCameraId } : undefined,
-                        facingMode: 'environment', // Prefer rear camera
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
+                        width: { exact: width },
+                        height: { exact: height }
                     },
                     audio: false
                 };
@@ -345,7 +381,7 @@
                 });
             } catch (err) {
                 console.error('Error starting video stream:', err);
-                showError('Unable to start video stream with selected settings. Please try a different camera.');
+                showError('Unable to start video stream with selected settings. Please try a different camera or resolution.');
                 stopScanning();
                 throw err;
             }
@@ -533,6 +569,7 @@
 
             // Get selected options
             selectedCameraId = cameraSelect.value;
+            selectedResolution = resolutionSelect.value;
             selectedLanguage = languageSelect.value;
 
             // Clear the debug window
@@ -622,9 +659,14 @@
         cameraSelect.addEventListener('change', () => {
             selectedCameraId = cameraSelect.value;
             console.log('Camera changed:', selectedCameraId);
-            if (scanning) {
-                startScanning(); // Restart scanning with new camera
-            }
+            // Repopulate resolutions (if device-specific resolutions are implemented)
+            // For now, resolutions remain the same
+        });
+
+        // Handle resolution selection change
+        resolutionSelect.addEventListener('change', () => {
+            selectedResolution = resolutionSelect.value;
+            console.log('Resolution changed:', selectedResolution);
         });
 
         // Handle language selection change
@@ -645,6 +687,7 @@
         window.addEventListener('DOMContentLoaded', async () => {
             await initCameraPermissions();
             await populateCameraOptions();
+            selectedResolution = resolutionSelect.value;
             selectedLanguage = languageSelect.value;
         });
 
