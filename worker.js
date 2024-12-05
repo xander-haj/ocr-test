@@ -1,7 +1,7 @@
 // worker.js
 // Web Worker script handling the OCR processing using Tesseract.js
 
-importScripts('https://cdn.jsdelivr.net/npm/tesseract.js@2/dist/tesseract.min.js');
+importScripts('https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js');
 
 let tesseractWorker;
 
@@ -9,12 +9,7 @@ onmessage = function (e) {
     if (e.data.cmd === 'init') {
         let numWorkers = e.data.numWorkers || 1;
         tesseractWorker = Tesseract.createWorker({
-            logger: m => console.log(m),
-            workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@2/dist/worker.min.js',
-            langPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@2/lang/',
-            corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@2/engines/tesseract-core.wasm.js',
-            cacheMethod: 'none',
-            workerBlobURL: false
+            logger: m => console.log(m)
         });
         (async () => {
             await tesseractWorker.load();
@@ -22,12 +17,12 @@ onmessage = function (e) {
             await tesseractWorker.initialize('eng');
             postMessage({ status: 'initialized' });
         })();
-    } else if (e.data.imageBlob && e.data.lang) {
-        let { imageBlob, lang } = e.data;
+    } else if (e.data.imageDataURL && e.data.lang) {
+        let { imageDataURL, lang } = e.data;
         (async () => {
             await tesseractWorker.loadLanguage(lang);
             await tesseractWorker.initialize(lang);
-            let { data: { text } } = await tesseractWorker.recognize(imageBlob);
+            let { data: { text } } = await tesseractWorker.recognize(imageDataURL);
             postMessage({ status: 'result', text });
         })().catch(err => {
             console.error(err);

@@ -131,8 +131,7 @@ interact('#roi').draggable({
     x += event.deltaRect.left;
     y += event.deltaRect.top;
 
-    target.style.webkitTransform = target.style.transform =
-        'translate(' + x + 'px,' + y + 'px)';
+    target.style.transform = 'translate(' + x + 'px,' + y + 'px)';
 
     target.setAttribute('data-x', x);
     target.setAttribute('data-y', y);
@@ -145,8 +144,7 @@ function dragMoveListener(event) {
     let y = (parseFloat(target.getAttribute('data-y')) || 0) + event.dy;
 
     // Translate the element
-    target.style.webkitTransform = target.style.transform =
-        'translate(' + x + 'px, ' + y + 'px)';
+    target.style.transform = 'translate(' + x + 'px, ' + y + 'px)';
 
     // Update the position attributes
     target.setAttribute('data-x', x);
@@ -172,21 +170,23 @@ function captureFrameAndOCR() {
     let scaleX = video.videoWidth / videoRect.width;
     let scaleY = video.videoHeight / videoRect.height;
 
-    // Correct the ROI position considering transformations
-    let roiX = roiRect.left - videoRect.left + parseFloat(roi.getAttribute('data-x') || 0);
-    let roiY = roiRect.top - videoRect.top + parseFloat(roi.getAttribute('data-y') || 0);
+    // Calculate the ROI coordinates relative to the video
+    let roiX = (roiRect.left - videoRect.left) * scaleX;
+    let roiY = (roiRect.top - videoRect.top) * scaleY;
+    let roiWidth = roiRect.width * scaleX;
+    let roiHeight = roiRect.height * scaleY;
 
     // Set canvas size
-    canvas.width = roiRect.width * scaleX;
-    canvas.height = roiRect.height * scaleY;
+    canvas.width = roiWidth;
+    canvas.height = roiHeight;
 
     // Draw the ROI frame onto the canvas
     context.drawImage(
         video,
-        roiX * scaleX,
-        roiY * scaleY,
-        roiRect.width * scaleX,
-        roiRect.height * scaleY,
+        roiX,
+        roiY,
+        roiWidth,
+        roiHeight,
         0,
         0,
         canvas.width,
@@ -202,51 +202,51 @@ function captureFrameAndOCR() {
     }
     context.putImageData(imageData, 0, 0);
 
-    // Update debug canvas
+    // Update debug canvas to match ROI dimensions
     debugCanvas.width = canvas.width;
     debugCanvas.height = canvas.height;
     debugContext.drawImage(canvas, 0, 0, canvas.width, canvas.height);
 
-    // Get image data as Blob
-    canvas.toBlob(function (blob) {
-        // Update ROI border color to indicate processing
-        roi.style.borderColor = 'green';
+    // Get image data as Data URL
+    let imageDataURL = canvas.toDataURL('image/png');
 
-        // Send image data to Web Worker for OCR processing
-        if (!worker) {
-            worker = new Worker('worker.js');
+    // Update ROI border color to indicate processing
+    roi.style.borderColor = 'green';
 
-            // Set the number of workers
-            let numWorkers = parseInt(workerSelect.value);
+    // Send image data to Web Worker for OCR processing
+    if (!worker) {
+        worker = new Worker('worker.js');
 
-            worker.postMessage({ cmd: 'init', numWorkers });
+        // Set the number of workers
+        let numWorkers = parseInt(workerSelect.value);
 
-            worker.onmessage = function (e) {
-                if (e.data.status === 'result') {
-                    outputText.value = e.data.text;
-                    roi.style.borderColor = 'red';
-                    processing = false;
-                } else if (e.data.status === 'initialized') {
-                    // Worker initialized
-                    // Start OCR processing
-                    worker.postMessage({
-                        imageBlob: blob,
-                        lang: languageSelect.value
-                    });
-                } else if (e.data.status === 'error') {
-                    alert(e.data.text);
-                    roi.style.borderColor = 'red';
-                    processing = false;
-                }
-            };
-        } else {
-            // Worker already initialized
-            worker.postMessage({
-                imageBlob: blob,
-                lang: languageSelect.value
-            });
-        }
-    }, 'image/png');
+        worker.postMessage({ cmd: 'init', numWorkers });
+
+        worker.onmessage = function (e) {
+            if (e.data.status === 'result') {
+                outputText.value = e.data.text;
+                roi.style.borderColor = 'red';
+                processing = false;
+            } else if (e.data.status === 'initialized') {
+                // Worker initialized
+                // Start OCR processing
+                worker.postMessage({
+                    imageDataURL: imageDataURL,
+                    lang: languageSelect.value
+                });
+            } else if (e.data.status === 'error') {
+                alert(e.data.text);
+                roi.style.borderColor = 'red';
+                processing = false;
+            }
+        };
+    } else {
+        // Worker already initialized
+        worker.postMessage({
+            imageDataURL: imageDataURL,
+            lang: languageSelect.value
+        });
+    }
 }
 
 // Event listener for the start scanner button

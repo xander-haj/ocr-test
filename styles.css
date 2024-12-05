@@ -61,7 +61,6 @@ h1 {
     border: 1px solid #ccc;
 }
 
-/* Responsive Design */
 @media (orientation: landscape) {
     #scannerContainer, #cameraFeed {
         height: 60vh;
