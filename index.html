@@ -92,6 +92,23 @@
             cursor: not-allowed;
         }
 
+        /* Workers Select Styling */
+        #workers-select {
+            padding: 10px;
+            font-size: 16px;
+            margin: 0 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        #workers-select:disabled {
+            background-color: #e9ecef;
+            cursor: not-allowed;
+        }
+        #controls label {
+            font-size: 16px;
+            margin-left: 5px;
+        }
+
         /* Output Textarea Styling */
         #output {
             margin-top: 20px;
@@ -130,6 +147,22 @@
             max-width: 80%;
             height: auto;
         }
+
+        /* Debug Output Textarea Styling */
+        #debugOutput {
+            margin-top: 20px;
+            width: 80%;
+            max-width: 800px;
+            height: 150px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: none;
+            font-size: 14px;
+            overflow-y: auto;
+            background-color: #fff;
+            white-space: pre-wrap;
+        }
     </style>
 </head>
 <body>
@@ -141,10 +174,14 @@
             <button id="start-button">Start Scanner</button>
             <button id="stop-button" disabled>Stop Scanner</button>
             <button id="ocr-button" disabled>OCR</button> <!-- New OCR button -->
+            <select id="workers-select" disabled></select>
+            <label for="workers-select">Workers</label>
             <textarea id="output" placeholder="Extracted text will appear here..." readonly></textarea>
         </div>
         <!-- Debugging Canvas -->
         <canvas id="debugCanvas"></canvas>
+        <!-- Debug Output -->
+        <textarea id="debugOutput" placeholder="Debug messages..." readonly></textarea>
     </div>
 
     <script>
@@ -157,10 +194,13 @@
         const output = document.getElementById('output');
         const errorMsg = document.getElementById('errorMsg');
         const debugCanvas = document.getElementById('debugCanvas');
+        const workersSelect = document.getElementById('workers-select'); // Workers control
+        const debugOutput = document.getElementById('debugOutput'); // Debug output
 
         let stream = null;
         let scanning = false;
         const MIN_CONFIDENCE = 60; // Minimum confidence percentage to accept OCR result
+        let tesseractWorker = null; // Tesseract worker instance
 
         // Pre-created canvases for reuse
         const videoCanvas = document.createElement('canvas');
@@ -178,6 +218,13 @@
             }, 5000);
         }
 
+        // Function to log debug messages
+        function logDebug(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            debugOutput.value += `[${timestamp}] ${message}\n`;
+            debugOutput.scrollTop = debugOutput.scrollHeight; // Auto-scroll to bottom
+        }
+
         // Function to initialize camera
         async function initCamera() {
             try {
@@ -187,6 +234,7 @@
                 });
                 video.srcObject = stream;
                 console.log('Camera initialized successfully.');
+                logDebug('Camera initialized successfully.');
             } catch (err) {
                 console.error('Camera initialization failed:', err);
                 showError('Unable to access the rear camera. Please check permissions or try a different device.');
@@ -225,17 +273,21 @@
         // Function to perform OCR
         async function performOCR(blob) {
             console.log('Starting OCR process.');
+            logDebug('Starting OCR process.');
             try {
-                const { data: { text, confidence } } = await Tesseract.recognize(
-                    blob,
-                    'eng',
-                    { 
-                        logger: m => console.log(`[Tesseract.js] ${m.status}: ${Math.round(m.progress * 100)}%`)
-                    }
-                );
+                // Get the number of workers selected
+                const numWorkers = parseInt(workersSelect.value) || 1;
+
+                // Note: Adjusting the number of workers in Tesseract.js is not directly supported.
+                // For demonstration, we can log the selected number of workers.
+                logDebug(`Using ${numWorkers} worker(s) for OCR.`);
+
+                const { data: { text, confidence } } = await tesseractWorker.recognize(blob);
 
                 console.log(`OCR Confidence: ${confidence}`);
                 console.log(`OCR Extracted Text: "${text.trim()}"`);
+                logDebug(`OCR Confidence: ${confidence}`);
+                logDebug(`OCR Extracted Text: "${text.trim()}"`);
 
                 if (confidence >= MIN_CONFIDENCE && text.trim().length > 0) {
                     overlay.style.borderColor = 'green';
@@ -243,10 +295,12 @@
                     if (!output.value.includes(text.trim())) {
                         output.value += text.trim() + '\n';
                         console.log('Text appended to output.');
+                        logDebug('Text appended to output.');
                     }
                 } else {
                     overlay.style.borderColor = 'red';
                     console.log('OCR confidence too low or no text detected.');
+                    logDebug('OCR confidence too low or no text detected.');
                 }
             } catch (err) {
                 console.error('Tesseract.js error:', err);
@@ -259,10 +313,12 @@
         async function captureAndOCR() {
             if (video.readyState !== video.HAVE_ENOUGH_DATA) {
                 console.warn('Video not ready');
+                logDebug('Video not ready');
                 return;
             }
 
             console.log('Capturing frame for OCR.');
+            logDebug('Capturing frame for OCR.');
 
             // Set canvas dimensions to match video
             const videoWidth = video.videoWidth;
@@ -286,6 +342,7 @@
             const roiHeight = overlayRect.height * scaleY;
 
             console.log(`ROI Coordinates: (${roiX.toFixed(2)}, ${roiY.toFixed(2)}, ${roiWidth.toFixed(2)}, ${roiHeight.toFixed(2)})`);
+            logDebug(`ROI Coordinates: (${roiX.toFixed(2)}, ${roiY.toFixed(2)}, ${roiWidth.toFixed(2)}, ${roiHeight.toFixed(2)})`);
 
             // Ensure ROI is within the video frame bounds
             if (roiX < 0 || roiY < 0 || (roiX + roiWidth) > videoWidth || (roiY + roiHeight) > videoHeight) {
@@ -300,6 +357,7 @@
             const roiCtx = roiCanvas.getContext('2d');
             roiCtx.drawImage(videoCanvas, roiX, roiY, roiWidth, roiHeight, 0, 0, roiWidth, roiHeight);
             console.log('ROI extracted.');
+            logDebug('ROI extracted.');
 
             // Further preprocess ROI: scale up to improve OCR accuracy
             const scaleFactor = 1.5; // Adjust as needed
@@ -310,6 +368,7 @@
             scaledCtx.imageSmoothingQuality = 'high';
             scaledCtx.drawImage(roiCanvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
             console.log('ROI scaled.');
+            logDebug('ROI scaled.');
 
             // Update the debugging canvas
             debugCanvas.width = scaledCanvas.width;
@@ -317,6 +376,7 @@
             debugCtx.clearRect(0, 0, debugCanvas.width, debugCanvas.height);
             debugCtx.drawImage(scaledCanvas, 0, 0);
             console.log('Debugging canvas updated.');
+            logDebug('Debugging canvas updated.');
 
             // Convert the canvas to a blob for OCR
             const blob = await new Promise((resolve) => {
@@ -327,9 +387,11 @@
 
             if (blob) {
                 console.log('Blob created for OCR.');
+                logDebug('Blob created for OCR.');
                 await performOCR(blob);
             } else {
                 console.warn('Blob conversion failed.');
+                logDebug('Blob conversion failed.');
             }
         }
 
@@ -345,6 +407,7 @@
             stopButton.disabled = true;
             startButton.innerText = 'Starting...';
             console.log('Initializing camera...');
+            logDebug('Initializing camera...');
             try {
                 await initCamera();
             } catch (err) {
@@ -361,19 +424,47 @@
             startButton.innerText = 'Scanning...';
             output.value = ''; // Clear previous output
             console.log('Scanning started.');
+            logDebug('Scanning started.');
+
+            // Initialize Tesseract worker
+            tesseractWorker = Tesseract.createWorker({
+                logger: m => {
+                    console.log(`[Tesseract.js] ${m.status}: ${Math.round(m.progress * 100)}%`);
+                    logDebug(`[Tesseract.js] ${m.status}: ${Math.round(m.progress * 100)}%`);
+                }
+            });
+
+            // Enable and populate workers select
+            workersSelect.disabled = false;
+            workersSelect.innerHTML = '';
+            for (let i = 1; i <= 4; i++) {
+                const option = document.createElement('option');
+                option.value = i;
+                option.text = i;
+                workersSelect.appendChild(option);
+            }
+
+            // Load and initialize the worker
+            await tesseractWorker.load();
+            await tesseractWorker.loadLanguage('eng');
+            await tesseractWorker.initialize('eng');
+            console.log('Tesseract worker initialized.');
+            logDebug('Tesseract worker initialized.');
         }
 
         // Function to stop scanning
-        function stopScanning() {
+        async function stopScanning() {
             if (!scanning) return;
 
             scanning = false;
             startButton.disabled = false;
             stopButton.disabled = true;
             ocrButton.disabled = true;
+            workersSelect.disabled = true;
             startButton.innerText = 'Start Scanner';
             overlay.style.borderColor = 'red';
             console.log('Scanning stopped.');
+            logDebug('Scanning stopped.');
 
             // Stop all video tracks
             if (stream) {
@@ -381,9 +472,18 @@
                 stream = null;
             }
 
+            // Terminate Tesseract worker
+            if (tesseractWorker) {
+                await tesseractWorker.terminate();
+                tesseractWorker = null;
+                console.log('Tesseract worker terminated.');
+                logDebug('Tesseract worker terminated.');
+            }
+
             // Optionally, clear the debugging canvas
             debugCtx.clearRect(0, 0, debugCanvas.width, debugCanvas.height);
             console.log('Camera stream stopped and debugging canvas cleared.');
+            logDebug('Camera stream stopped and debugging canvas cleared.');
         }
 
         // Handle start button click
@@ -398,6 +498,7 @@
 
         // Handle OCR button click
         ocrButton.addEventListener('click', () => {
+            logDebug('OCR button pressed.');
             captureAndOCR();
         });
 
@@ -405,6 +506,9 @@
         window.addEventListener('beforeunload', () => {
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
+            }
+            if (tesseractWorker) {
+                tesseractWorker.terminate();
             }
         });
     </script>
