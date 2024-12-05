@@ -21,7 +21,7 @@ onmessage = function (e) {
             await tesseractWorker.initialize('eng');
             postMessage({ status: 'initialized' });
         })();
-    } else {
+    } else if (e.data.imageData && e.data.lang) {
         let { imageData, lang } = e.data;
         (async () => {
             await tesseractWorker.loadLanguage(lang);

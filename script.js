@@ -3,6 +3,7 @@
 
 let video = document.getElementById('cameraFeed');
 let startScannerButton = document.getElementById('startScanner');
+let captureOCRButton = document.getElementById('captureOCR');
 let roi = document.getElementById('roi');
 let outputText = document.getElementById('outputText');
 let languageSelect = document.getElementById('languageSelect');
@@ -15,7 +16,6 @@ let workerSelect = document.getElementById('workerSelect');
 let stream;
 let worker;
 let processing = false;
-let debounceTimeout;
 
 let videoConstraints = {
     video: { facingMode: 'environment' },
@@ -81,8 +81,9 @@ async function startCamera() {
 
 // Function to start the scanner
 async function startScanner() {
-    // Hide the start button
+    // Hide the start button and show the OCR button
     startScannerButton.style.display = 'none';
+    captureOCRButton.style.display = 'inline-block';
 
     // Get camera options and resolutions
     await getCameraOptions();
@@ -96,9 +97,6 @@ async function startScanner() {
 
     // Initialize ROI position and size
     initROI();
-
-    // Start processing frames
-    processFrame();
 }
 
 // Initialize ROI to default size and position
@@ -150,94 +148,98 @@ function dragMoveListener(event) {
     target.setAttribute('data-y', y);
 }
 
-// Function to process frames within the ROI
-function processFrame() {
+// Function to capture frame and perform OCR
+function captureFrameAndOCR() {
     if (processing) {
-        requestAnimationFrame(processFrame);
         return;
     }
 
     processing = true;
 
-    // Debounce OCR processing
-    clearTimeout(debounceTimeout);
-    debounceTimeout = setTimeout(async () => {
-        let canvas = document.createElement('canvas');
-        let context = canvas.getContext('2d');
+    let canvas = document.createElement('canvas');
+    let context = canvas.getContext('2d');
 
-        // Get ROI position and size
-        let roiRect = roi.getBoundingClientRect();
-        let videoRect = video.getBoundingClientRect();
+    // Get ROI position and size
+    let roiRect = roi.getBoundingClientRect();
+    let videoRect = video.getBoundingClientRect();
 
-        // Calculate scale factor
-        let scaleX = video.videoWidth / videoRect.width;
-        let scaleY = video.videoHeight / videoRect.height;
+    // Calculate scale factor
+    let scaleX = video.videoWidth / videoRect.width;
+    let scaleY = video.videoHeight / videoRect.height;
 
-        // Set canvas size
-        canvas.width = roiRect.width * scaleX;
-        canvas.height = roiRect.height * scaleY;
+    // Set canvas size
+    canvas.width = roiRect.width * scaleX;
+    canvas.height = roiRect.height * scaleY;
 
-        // Draw the ROI frame onto the canvas
-        context.drawImage(
-            video,
-            (roiRect.left - videoRect.left) * scaleX,
-            (roiRect.top - videoRect.top) * scaleY,
-            roiRect.width * scaleX,
-            roiRect.height * scaleY,
-            0,
-            0,
-            canvas.width,
-            canvas.height
-        );
+    // Draw the ROI frame onto the canvas
+    context.drawImage(
+        video,
+        (roiRect.left - videoRect.left) * scaleX,
+        (roiRect.top - videoRect.top) * scaleY,
+        roiRect.width * scaleX,
+        roiRect.height * scaleY,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
 
-        // Image preprocessing (convert to grayscale)
-        let imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-        let data = imageData.data;
-        for (let i = 0; i < data.length; i += 4) {
-            let gray = data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11;
-            data[i] = data[i + 1] = data[i + 2] = gray;
-        }
-        context.putImageData(imageData, 0, 0);
+    // Image preprocessing (convert to grayscale)
+    let imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    let data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+        let gray = data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11;
+        data[i] = data[i + 1] = data[i + 2] = gray;
+    }
+    context.putImageData(imageData, 0, 0);
 
-        // Update debug canvas
-        debugCanvas.width = canvas.width;
-        debugCanvas.height = canvas.height;
-        debugContext.drawImage(canvas, 0, 0, canvas.width, canvas.height);
+    // Update debug canvas
+    debugCanvas.width = canvas.width;
+    debugCanvas.height = canvas.height;
+    debugContext.drawImage(canvas, 0, 0, canvas.width, canvas.height);
 
-        // Get image data
-        let imageDataURL = canvas.toDataURL('image/png');
+    // Get image data
+    let imageDataURL = canvas.toDataURL('image/png');
 
-        // Update ROI border color to indicate processing
-        roi.style.borderColor = 'green';
+    // Update ROI border color to indicate processing
+    roi.style.borderColor = 'green';
 
-        // Send image data to Web Worker for OCR processing
-        if (!worker) {
-            worker = new Worker('worker.js');
+    // Send image data to Web Worker for OCR processing
+    if (!worker) {
+        worker = new Worker('worker.js');
 
-            // Set the number of workers
-            let numWorkers = parseInt(workerSelect.value);
-            worker.postMessage({ cmd: 'init', numWorkers });
+        // Set the number of workers
+        let numWorkers = parseInt(workerSelect.value);
+        worker.postMessage({ cmd: 'init', numWorkers });
 
-            worker.onmessage = function (e) {
-                if (e.data.status === 'result') {
-                    outputText.value = e.data.text;
-                    roi.style.borderColor = 'red';
-                    processing = false;
-                    requestAnimationFrame(processFrame);
-                }
-            };
-        }
+        worker.onmessage = function (e) {
+            if (e.data.status === 'result') {
+                outputText.value = e.data.text;
+                roi.style.borderColor = 'red';
+                processing = false;
+            } else if (e.data.status === 'initialized') {
+                // Worker initialized
+                // Start OCR processing
+                worker.postMessage({
+                    imageData: imageDataURL,
+                    lang: languageSelect.value
+                });
+            }
+        };
+    } else {
+        // Worker already initialized
         worker.postMessage({
             imageData: imageDataURL,
             lang: languageSelect.value
         });
-    }, 500); // Adjust debounce delay as needed
-
-    requestAnimationFrame(processFrame);
+    }
 }
 
 // Event listener for the start scanner button
 startScannerButton.addEventListener('click', startScanner);
+
+// Event listener for the OCR button
+captureOCRButton.addEventListener('click', captureFrameAndOCR);
 
 // Event listeners for camera, resolution, and worker changes
 cameraSelect.addEventListener('change', startCamera);
