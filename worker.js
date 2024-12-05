@@ -3,28 +3,32 @@
 
 importScripts('https://cdn.jsdelivr.net/npm/tesseract.js@2/dist/tesseract.min.js');
 
-let worker;
+let tesseractWorker;
 
-// Initialize worker with a specific number of threads
 onmessage = function (e) {
     if (e.data.cmd === 'init') {
         let numWorkers = e.data.numWorkers || 1;
-        Tesseract.create({
+        tesseractWorker = Tesseract.createWorker({
+            logger: m => console.log(m),
             workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@2/dist/worker.min.js',
-            langPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@2/dist/lang/',
+            langPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@2/lang/',
             corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@2/engines/tesseract-core.wasm.js',
-            workerBlobURL: false,
-            workerOptions: { numWorkers }
+            cacheMethod: 'none'
         });
+        (async () => {
+            await tesseractWorker.load();
+            await tesseractWorker.loadLanguage('eng');
+            await tesseractWorker.initialize('eng');
+            postMessage({ status: 'initialized' });
+        })();
     } else {
         let { imageData, lang } = e.data;
-        Tesseract.recognize(
-            imageData,
-            lang,
-            { logger: m => console.log(m) }
-        ).then(({ data: { text } }) => {
+        (async () => {
+            await tesseractWorker.loadLanguage(lang);
+            await tesseractWorker.initialize(lang);
+            let { data: { text } } = await tesseractWorker.recognize(imageData);
             postMessage({ status: 'result', text });
-        }).catch(err => {
+        })().catch(err => {
             console.error(err);
             postMessage({ status: 'error', text: 'Error: ' + err.message });
         });
