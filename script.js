@@ -8,19 +8,67 @@ let outputText = document.getElementById('outputText');
 let languageSelect = document.getElementById('languageSelect');
 let debugCanvas = document.getElementById('debugCanvas');
 let debugContext = debugCanvas.getContext('2d');
+let cameraSelect = document.getElementById('cameraSelect');
+let resolutionSelect = document.getElementById('resolutionSelect');
+let workerSelect = document.getElementById('workerSelect');
 
 let stream;
 let worker;
 let processing = false;
 let debounceTimeout;
 
+let videoConstraints = {
+    video: { facingMode: 'environment' },
+    audio: false
+};
+
+// Populate camera options after permissions are granted
+async function getCameraOptions() {
+    let devices = await navigator.mediaDevices.enumerateDevices();
+    let videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+    cameraSelect.innerHTML = '';
+    videoDevices.forEach(device => {
+        let option = document.createElement('option');
+        option.value = device.deviceId;
+        option.text = device.label || `Camera ${cameraSelect.length + 1}`;
+        cameraSelect.appendChild(option);
+    });
+}
+
+// Populate resolution options
+function getResolutionOptions() {
+    // Common resolutions
+    const resolutions = [
+        { width: 1920, height: 1080 },
+        { width: 1280, height: 720 },
+        { width: 640, height: 480 }
+    ];
+
+    resolutionSelect.innerHTML = '';
+    resolutions.forEach(res => {
+        let option = document.createElement('option');
+        option.value = JSON.stringify(res);
+        option.text = `${res.width} x ${res.height}`;
+        resolutionSelect.appendChild(option);
+    });
+}
+
 // Function to start the camera
 async function startCamera() {
+    // Update video constraints based on selected camera and resolution
+    let selectedCamera = cameraSelect.value;
+    let selectedResolution = JSON.parse(resolutionSelect.value);
+
+    videoConstraints.video = {
+        deviceId: selectedCamera ? { exact: selectedCamera } : undefined,
+        width: { ideal: selectedResolution.width },
+        height: { ideal: selectedResolution.height },
+        facingMode: 'environment'
+    };
+
     try {
-        stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment' },
-            audio: false
-        });
+        stream = await navigator.mediaDevices.getUserMedia(videoConstraints);
         video.srcObject = stream;
     } catch (error) {
         alert('Error accessing the camera: ' + error.message);
@@ -28,15 +76,23 @@ async function startCamera() {
 }
 
 // Function to start the scanner
-function startScanner() {
+async function startScanner() {
     // Hide the start button
     startScannerButton.style.display = 'none';
+
+    // Get camera options and resolutions
+    await getCameraOptions();
+    getResolutionOptions();
+
+    // Start the camera
+    await startCamera();
+
     // Show the ROI
     roi.style.display = 'block';
-    // Start the camera
-    startCamera();
+
     // Initialize ROI position and size
     initROI();
+
     // Start processing frames
     processFrame();
 }
@@ -130,13 +186,22 @@ function processFrame() {
             canvas.height
         );
 
+        // Image preprocessing (convert to grayscale)
+        let imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        let data = imageData.data;
+        for (let i = 0; i < data.length; i += 4) {
+            let gray = data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11;
+            data[i] = data[i + 1] = data[i + 2] = gray;
+        }
+        context.putImageData(imageData, 0, 0);
+
         // Update debug canvas
         debugCanvas.width = canvas.width;
         debugCanvas.height = canvas.height;
         debugContext.drawImage(canvas, 0, 0, canvas.width, canvas.height);
 
         // Get image data
-        let imageData = canvas.toDataURL('image/png');
+        let imageDataURL = canvas.toDataURL('image/png');
 
         // Update ROI border color to indicate processing
         roi.style.borderColor = 'green';
@@ -144,15 +209,22 @@ function processFrame() {
         // Send image data to Web Worker for OCR processing
         if (!worker) {
             worker = new Worker('worker.js');
+
+            // Set the number of workers
+            let numWorkers = parseInt(workerSelect.value);
+            worker.postMessage({ cmd: 'init', numWorkers });
+
             worker.onmessage = function (e) {
-                outputText.value = e.data.text;
-                roi.style.borderColor = 'red';
-                processing = false;
-                requestAnimationFrame(processFrame);
+                if (e.data.status === 'result') {
+                    outputText.value = e.data.text;
+                    roi.style.borderColor = 'red';
+                    processing = false;
+                    requestAnimationFrame(processFrame);
+                }
             };
         }
         worker.postMessage({
-            imageData: imageData,
+            imageData: imageDataURL,
             lang: languageSelect.value
         });
     }, 500); // Adjust debounce delay as needed
@@ -162,6 +234,10 @@ function processFrame() {
 
 // Event listener for the start scanner button
 startScannerButton.addEventListener('click', startScanner);
+
+// Event listener for camera and resolution changes
+cameraSelect.addEventListener('change', startCamera);
+resolutionSelect.addEventListener('change', startCamera);
 
 // Cleanup function to stop camera stream
 function stopCamera() {
