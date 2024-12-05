@@ -303,7 +303,7 @@
                 console.log('Camera options populated.');
 
                 // Populate resolution options after cameras are loaded
-                await populateResolutionOptions();
+                populateResolutionOptions();
 
             } catch (err) {
                 console.error('Error enumerating devices:', err);
@@ -313,7 +313,7 @@
         }
 
         // Function to populate resolution options
-        async function populateResolutionOptions() {
+        function populateResolutionOptions() {
             // Common resolutions to try
             const commonResolutions = [
                 { width: 1920, height: 1080 },
@@ -335,56 +335,6 @@
             selectedResolution = resolutionSelect.value;
 
             console.log('Resolution options populated.');
-        }
-
-        // Function to initialize camera permissions
-        async function initCameraPermissions() {
-            try {
-                await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                console.log('Camera permissions requested on page load.');
-            } catch (err) {
-                console.error('Camera permission denied:', err);
-                showError('Camera access was denied. Please allow camera permissions.');
-                startButton.disabled = true;
-            }
-        }
-
-        // Function to start the video stream with selected camera and resolution
-        async function startVideoStream() {
-            try {
-                if (stream) {
-                    // Stop existing stream
-                    stream.getTracks().forEach(track => track.stop());
-                }
-
-                const [width, height] = selectedResolution.split('x').map(Number);
-
-                const constraints = {
-                    video: {
-                        deviceId: selectedCameraId ? { exact: selectedCameraId } : undefined,
-                        width: { exact: width },
-                        height: { exact: height }
-                    },
-                    audio: false
-                };
-
-                stream = await navigator.mediaDevices.getUserMedia(constraints);
-                video.srcObject = stream;
-                console.log('Video stream started with constraints:', constraints);
-
-                // Wait for video metadata to be loaded
-                return new Promise((resolve) => {
-                    video.onloadedmetadata = () => {
-                        console.log('Video metadata loaded.');
-                        resolve();
-                    };
-                });
-            } catch (err) {
-                console.error('Error starting video stream:', err);
-                showError('Unable to start video stream with selected settings. Please try a different camera or resolution.');
-                stopScanning();
-                throw err;
-            }
         }
 
         // Function to adjust overlay size and position
@@ -563,6 +513,44 @@
             }
         }
 
+        // Adjusted startVideoStream function
+        async function startVideoStream() {
+            try {
+                if (stream) {
+                    // Stop existing stream
+                    stream.getTracks().forEach(track => track.stop());
+                }
+
+                const [width, height] = selectedResolution.split('x').map(Number);
+
+                const constraints = {
+                    video: {
+                        deviceId: selectedCameraId ? { ideal: selectedCameraId } : undefined,
+                        width: { ideal: width },
+                        height: { ideal: height }
+                    },
+                    audio: false
+                };
+
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+                console.log('Video stream started with constraints:', constraints);
+
+                // Wait for video metadata to be loaded
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        console.log('Video metadata loaded.');
+                        resolve();
+                    };
+                });
+            } catch (err) {
+                console.error('Error starting video stream:', err);
+                showError('Unable to start video stream with selected settings. Please try a different camera or resolution.');
+                stopScanning();
+                throw err;
+            }
+        }
+
         // Function to start scanning
         async function startScanning() {
             if (scanning) return;
@@ -584,6 +572,10 @@
             console.log('Starting scanner...');
 
             try {
+                // Request camera permissions here
+                await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                await populateCameraOptions();
+
                 await startVideoStream();
 
                 video.style.display = 'block'; // Show the video element
@@ -683,10 +675,9 @@
             }
         });
 
-        // Initialize camera permissions and populate device options on page load
+        // Initialize resolution and language on page load
         window.addEventListener('DOMContentLoaded', async () => {
-            await initCameraPermissions();
-            await populateCameraOptions();
+            populateResolutionOptions();
             selectedResolution = resolutionSelect.value;
             selectedLanguage = languageSelect.value;
         });
