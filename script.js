@@ -106,6 +106,11 @@ function initROI() {
     roi.style.height = rect.height / 2 + 'px';
     roi.style.left = rect.width / 4 + 'px';
     roi.style.top = rect.height / 4 + 'px';
+
+    // Reset transformations
+    roi.style.transform = 'translate(0px, 0px)';
+    roi.setAttribute('data-x', 0);
+    roi.setAttribute('data-y', 0);
 }
 
 // Set up ROI draggable and resizable functionality using Interact.js
@@ -167,6 +172,10 @@ function captureFrameAndOCR() {
     let scaleX = video.videoWidth / videoRect.width;
     let scaleY = video.videoHeight / videoRect.height;
 
+    // Correct the ROI position considering transformations
+    let roiX = roiRect.left - videoRect.left + parseFloat(roi.getAttribute('data-x') || 0);
+    let roiY = roiRect.top - videoRect.top + parseFloat(roi.getAttribute('data-y') || 0);
+
     // Set canvas size
     canvas.width = roiRect.width * scaleX;
     canvas.height = roiRect.height * scaleY;
@@ -174,8 +183,8 @@ function captureFrameAndOCR() {
     // Draw the ROI frame onto the canvas
     context.drawImage(
         video,
-        (roiRect.left - videoRect.left) * scaleX,
-        (roiRect.top - videoRect.top) * scaleY,
+        roiX * scaleX,
+        roiY * scaleY,
         roiRect.width * scaleX,
         roiRect.height * scaleY,
         0,
@@ -198,41 +207,46 @@ function captureFrameAndOCR() {
     debugCanvas.height = canvas.height;
     debugContext.drawImage(canvas, 0, 0, canvas.width, canvas.height);
 
-    // Get image data
-    let imageDataURL = canvas.toDataURL('image/png');
+    // Get image data as Blob
+    canvas.toBlob(function (blob) {
+        // Update ROI border color to indicate processing
+        roi.style.borderColor = 'green';
 
-    // Update ROI border color to indicate processing
-    roi.style.borderColor = 'green';
+        // Send image data to Web Worker for OCR processing
+        if (!worker) {
+            worker = new Worker('worker.js');
 
-    // Send image data to Web Worker for OCR processing
-    if (!worker) {
-        worker = new Worker('worker.js');
+            // Set the number of workers
+            let numWorkers = parseInt(workerSelect.value);
 
-        // Set the number of workers
-        let numWorkers = parseInt(workerSelect.value);
-        worker.postMessage({ cmd: 'init', numWorkers });
+            worker.postMessage({ cmd: 'init', numWorkers });
 
-        worker.onmessage = function (e) {
-            if (e.data.status === 'result') {
-                outputText.value = e.data.text;
-                roi.style.borderColor = 'red';
-                processing = false;
-            } else if (e.data.status === 'initialized') {
-                // Worker initialized
-                // Start OCR processing
-                worker.postMessage({
-                    imageData: imageDataURL,
-                    lang: languageSelect.value
-                });
-            }
-        };
-    } else {
-        // Worker already initialized
-        worker.postMessage({
-            imageData: imageDataURL,
-            lang: languageSelect.value
-        });
-    }
+            worker.onmessage = function (e) {
+                if (e.data.status === 'result') {
+                    outputText.value = e.data.text;
+                    roi.style.borderColor = 'red';
+                    processing = false;
+                } else if (e.data.status === 'initialized') {
+                    // Worker initialized
+                    // Start OCR processing
+                    worker.postMessage({
+                        imageBlob: blob,
+                        lang: languageSelect.value
+                    });
+                } else if (e.data.status === 'error') {
+                    alert(e.data.text);
+                    roi.style.borderColor = 'red';
+                    processing = false;
+                }
+            };
+        } else {
+            // Worker already initialized
+            worker.postMessage({
+                imageBlob: blob,
+                lang: languageSelect.value
+            });
+        }
+    }, 'image/png');
 }
 
 // Event listener for the start scanner button
