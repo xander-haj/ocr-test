@@ -51,7 +51,6 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%); /* Centers the overlay */
-            /* Removed display: none; to keep ROI visible at all times */
         }
 
         /* Controls Styling */
@@ -173,7 +172,7 @@
         <div id="controls">
             <button id="start-button">Start Scanner</button>
             <button id="stop-button" disabled>Stop Scanner</button>
-            <button id="ocr-button" disabled>OCR</button> <!-- New OCR button -->
+            <button id="ocr-button" disabled>OCR</button>
             <select id="workers-select" disabled></select>
             <label for="workers-select">Workers</label>
             <textarea id="output" placeholder="Extracted text will appear here..." readonly></textarea>
@@ -237,6 +236,7 @@
                 logDebug('Camera initialized successfully.');
             } catch (err) {
                 console.error('Camera initialization failed:', err);
+                logDebug(`Camera initialization failed: ${err.message}`);
                 showError('Unable to access the rear camera. Please check permissions or try a different device.');
                 throw err; // Rethrow to handle in caller
             }
@@ -275,6 +275,13 @@
             console.log('Starting OCR process.');
             logDebug('Starting OCR process.');
             try {
+                // Check if the worker is initialized
+                if (!tesseractWorker) {
+                    logDebug('Tesseract worker is not initialized.');
+                    showError('OCR engine is not initialized.');
+                    return;
+                }
+
                 // Get the number of workers selected
                 const numWorkers = parseInt(workersSelect.value) || 1;
 
@@ -304,6 +311,7 @@
                 }
             } catch (err) {
                 console.error('Tesseract.js error:', err);
+                logDebug(`Tesseract.js error: ${err.message}`);
                 showError('An error occurred while processing the image.');
                 overlay.style.borderColor = 'red';
             }
@@ -420,7 +428,6 @@
             scanning = true;
             startButton.disabled = true;
             stopButton.disabled = false;
-            ocrButton.disabled = false;
             startButton.innerText = 'Scanning...';
             output.value = ''; // Clear previous output
             console.log('Scanning started.');
@@ -444,12 +451,23 @@
                 workersSelect.appendChild(option);
             }
 
-            // Load and initialize the worker
-            await tesseractWorker.load();
-            await tesseractWorker.loadLanguage('eng');
-            await tesseractWorker.initialize('eng');
-            console.log('Tesseract worker initialized.');
-            logDebug('Tesseract worker initialized.');
+            try {
+                // Load and initialize the worker
+                await tesseractWorker.load();
+                await tesseractWorker.loadLanguage('eng');
+                await tesseractWorker.initialize('eng');
+                console.log('Tesseract worker initialized.');
+                logDebug('Tesseract worker initialized.');
+
+                // Enable the OCR button only after the worker is ready
+                ocrButton.disabled = false;
+            } catch (err) {
+                console.error('Error initializing Tesseract worker:', err);
+                logDebug(`Error initializing Tesseract worker: ${err.message}`);
+                showError('Failed to initialize OCR engine.');
+                // Clean up if initialization fails
+                await stopScanning();
+            }
         }
 
         // Function to stop scanning
@@ -474,10 +492,15 @@
 
             // Terminate Tesseract worker
             if (tesseractWorker) {
-                await tesseractWorker.terminate();
-                tesseractWorker = null;
-                console.log('Tesseract worker terminated.');
-                logDebug('Tesseract worker terminated.');
+                try {
+                    await tesseractWorker.terminate();
+                    tesseractWorker = null;
+                    console.log('Tesseract worker terminated.');
+                    logDebug('Tesseract worker terminated.');
+                } catch (err) {
+                    console.error('Error terminating Tesseract worker:', err);
+                    logDebug(`Error terminating Tesseract worker: ${err.message}`);
+                }
             }
 
             // Optionally, clear the debugging canvas
