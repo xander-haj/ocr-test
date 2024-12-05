@@ -42,7 +42,8 @@ function getResolutionOptions() {
     const resolutions = [
         { width: 1920, height: 1080 },
         { width: 1280, height: 720 },
-        { width: 640, height: 480 }
+        { width: 640, height: 480 },
+        { width: 320, height: 240 }
     ];
 
     resolutionSelect.innerHTML = '';
@@ -66,6 +67,9 @@ async function startCamera() {
         height: { ideal: selectedResolution.height },
         facingMode: 'environment'
     };
+
+    // Stop any existing stream
+    stopCamera();
 
     try {
         stream = await navigator.mediaDevices.getUserMedia(videoConstraints);
@@ -235,9 +239,15 @@ function processFrame() {
 // Event listener for the start scanner button
 startScannerButton.addEventListener('click', startScanner);
 
-// Event listener for camera and resolution changes
+// Event listeners for camera, resolution, and worker changes
 cameraSelect.addEventListener('change', startCamera);
 resolutionSelect.addEventListener('change', startCamera);
+workerSelect.addEventListener('change', () => {
+    if (worker) {
+        worker.terminate();
+        worker = null;
+    }
+});
 
 // Cleanup function to stop camera stream
 function stopCamera() {
