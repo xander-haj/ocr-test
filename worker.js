@@ -1,5 +1,4 @@
 // worker.js
-// Web Worker script handling the OCR processing using Tesseract.js
 
 importScripts('https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js');
 

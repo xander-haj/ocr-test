@@ -1,5 +1,4 @@
 // script.js
-// Main JavaScript file handling camera access, ROI manipulation, and OCR processing
 
 let video = document.getElementById('cameraFeed');
 let startScannerButton = document.getElementById('startScanner');
@@ -17,6 +16,13 @@ let stream;
 let worker;
 let processing = false;
 
+// Variables to track ROI position and size
+let roiX = 0;
+let roiY = 0;
+let roiWidth = 0;
+let roiHeight = 0;
+
+// Video constraints
 let videoConstraints = {
     video: { facingMode: 'environment' },
     audio: false
@@ -102,15 +108,15 @@ async function startScanner() {
 // Initialize ROI to default size and position
 function initROI() {
     let rect = video.getBoundingClientRect();
-    roi.style.width = rect.width / 2 + 'px';
-    roi.style.height = rect.height / 2 + 'px';
-    roi.style.left = rect.width / 4 + 'px';
-    roi.style.top = rect.height / 4 + 'px';
+    roiWidth = rect.width / 2;
+    roiHeight = rect.height / 2;
+    roiX = rect.left + rect.width / 4;
+    roiY = rect.top + rect.height / 4;
 
-    // Reset transformations
-    roi.style.transform = 'translate(0px, 0px)';
-    roi.setAttribute('data-x', 0);
-    roi.setAttribute('data-y', 0);
+    roi.style.width = roiWidth + 'px';
+    roi.style.height = roiHeight + 'px';
+    roi.style.left = roiX + 'px';
+    roi.style.top = roiY + 'px';
 }
 
 // Set up ROI draggable and resizable functionality using Interact.js
@@ -120,35 +126,31 @@ interact('#roi').draggable({
     edges: { left: true, right: true, bottom: true, top: true }
 }).on('resizemove', function (event) {
     let target = event.target;
-    let x = (parseFloat(target.getAttribute('data-x')) || 0);
-    let y = (parseFloat(target.getAttribute('data-y')) || 0);
 
-    // Update the element's style
-    target.style.width = event.rect.width + 'px';
-    target.style.height = event.rect.height + 'px';
+    // Update the size
+    roiWidth = event.rect.width;
+    roiHeight = event.rect.height;
 
-    // Translate when resizing from top or left edges
-    x += event.deltaRect.left;
-    y += event.deltaRect.top;
+    target.style.width = roiWidth + 'px';
+    target.style.height = roiHeight + 'px';
 
-    target.style.transform = 'translate(' + x + 'px,' + y + 'px)';
+    // Update the position
+    roiX += event.deltaRect.left;
+    roiY += event.deltaRect.top;
 
-    target.setAttribute('data-x', x);
-    target.setAttribute('data-y', y);
+    target.style.left = roiX + 'px';
+    target.style.top = roiY + 'px';
 });
 
 function dragMoveListener(event) {
     let target = event.target;
-    // Keep the dragged position in the data-x/data-y attributes
-    let x = (parseFloat(target.getAttribute('data-x')) || 0) + event.dx;
-    let y = (parseFloat(target.getAttribute('data-y')) || 0) + event.dy;
 
-    // Translate the element
-    target.style.transform = 'translate(' + x + 'px, ' + y + 'px)';
+    // Update the position
+    roiX += event.dx;
+    roiY += event.dy;
 
-    // Update the position attributes
-    target.setAttribute('data-x', x);
-    target.setAttribute('data-y', y);
+    target.style.left = roiX + 'px';
+    target.style.top = roiY + 'px';
 }
 
 // Function to capture frame and perform OCR
@@ -162,31 +164,28 @@ function captureFrameAndOCR() {
     let canvas = document.createElement('canvas');
     let context = canvas.getContext('2d');
 
-    // Get ROI position and size
-    let roiRect = roi.getBoundingClientRect();
+    // Get video dimensions
     let videoRect = video.getBoundingClientRect();
-
-    // Calculate scale factor
     let scaleX = video.videoWidth / videoRect.width;
     let scaleY = video.videoHeight / videoRect.height;
 
-    // Calculate the ROI coordinates relative to the video
-    let roiX = (roiRect.left - videoRect.left) * scaleX;
-    let roiY = (roiRect.top - videoRect.top) * scaleY;
-    let roiWidth = roiRect.width * scaleX;
-    let roiHeight = roiRect.height * scaleY;
+    // Calculate ROI coordinates relative to the video
+    let roiVideoX = (roiX - videoRect.left) * scaleX;
+    let roiVideoY = (roiY - videoRect.top) * scaleY;
+    let roiVideoWidth = roiWidth * scaleX;
+    let roiVideoHeight = roiHeight * scaleY;
 
     // Set canvas size
-    canvas.width = roiWidth;
-    canvas.height = roiHeight;
+    canvas.width = roiVideoWidth;
+    canvas.height = roiVideoHeight;
 
     // Draw the ROI frame onto the canvas
     context.drawImage(
         video,
-        roiX,
-        roiY,
-        roiWidth,
-        roiHeight,
+        roiVideoX,
+        roiVideoY,
+        roiVideoWidth,
+        roiVideoHeight,
         0,
         0,
         canvas.width,
