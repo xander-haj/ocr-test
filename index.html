@@ -36,6 +36,7 @@
             border: 2px solid #333;
             border-radius: 8px;
             background-color: #000;
+            display: none; /* Hidden initially */
         }
 
         /* ROI Overlay Styling */
@@ -51,7 +52,7 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%); /* Centers the overlay */
-            /* Removed display: none; to keep ROI visible at all times */
+            display: none; /* Hidden initially */
         }
 
         /* Controls Styling */
@@ -119,7 +120,7 @@
         #debugCanvas {
             margin-top: 20px;
             border: 1px solid #000;
-            display: block; /* Visible for debugging */
+            display: none; /* Hidden initially */
             max-width: 80%;
             height: auto;
         }
@@ -220,19 +221,20 @@
             }, 5000);
         }
 
-        // Function to initialize camera
+        // Function to initialize camera on page load
         async function initCamera() {
             try {
                 stream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: { exact: "environment" } }, // Prefer rear camera
                     audio: false
                 });
-                video.srcObject = stream;
-                console.log('Camera initialized successfully.');
+                console.log('Camera permissions requested on page load.');
+                // Do not set video.srcObject here; it will be set when scanning starts
             } catch (err) {
                 console.error('Camera initialization failed:', err);
                 showError('Unable to access the rear camera. Please check permissions or try a different device.');
-                throw err; // Rethrow to handle in caller
+                // Disable start button if permissions are denied
+                startButton.disabled = true;
             }
         }
 
@@ -407,13 +409,10 @@
         // Function to start scanning
         async function startScanning() {
             if (scanning) return;
-            if (stream) {
-                showError('Scanner is already running.');
+            if (!stream) {
+                showError('Camera stream not initialized.');
                 return;
             }
-
-            // Clear the debug window
-            debugWindow.value = '';
 
             // Override console functions
             overrideConsole();
@@ -421,9 +420,14 @@
             startButton.disabled = true;
             stopButton.disabled = true;
             startButton.innerText = 'Starting...';
-            console.log('Initializing camera...');
+            console.log('Starting scanner...');
+
             try {
-                await initCamera();
+                video.srcObject = stream;
+                video.style.display = 'block'; // Show the video element
+                overlay.style.display = 'block'; // Show the overlay
+                debugCanvas.style.display = 'block'; // Show the debug canvas
+
                 scanning = true;
                 startButton.disabled = true;
                 stopButton.disabled = false;
@@ -433,7 +437,8 @@
 
                 requestAnimationFrame(processFrame);
             } catch (err) {
-                // Error already handled in initCamera
+                console.error('Error starting scanner:', err);
+                showError('An error occurred while starting the scanner.');
                 startButton.disabled = false;
                 startButton.innerText = 'Start Scanner';
                 restoreConsole(); // Restore console functions if failed to start
@@ -451,11 +456,14 @@
             overlay.style.borderColor = 'red';
             console.log('Scanning stopped.');
 
-            // Stop all video tracks
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                stream = null;
-            }
+            // Hide the video and overlay elements
+            video.style.display = 'none';
+            overlay.style.display = 'none';
+            debugCanvas.style.display = 'none';
+
+            // Stop video playback
+            video.pause();
+            video.srcObject = null;
 
             // Restore original console functions
             restoreConsole();
@@ -473,6 +481,11 @@
         // Handle stop button click
         stopButton.addEventListener('click', () => {
             stopScanning();
+        });
+
+        // Initialize camera on page load to prompt for permissions
+        window.addEventListener('DOMContentLoaded', () => {
+            initCamera();
         });
 
         // Clean up on page unload
