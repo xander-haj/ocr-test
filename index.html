@@ -183,25 +183,32 @@
         const originalConsoleLog = console.log;
         const originalConsoleError = console.error;
 
-        // Override console.log
-        console.log = function(message) {
-            originalConsoleLog(message);
-            if (typeof message === 'object') {
-                message = JSON.stringify(message);
-            }
-            debugWindow.value += `[LOG] ${message}\n`;
-            debugWindow.scrollTop = debugWindow.scrollHeight; // Auto-scroll to bottom
-        };
+        // Function to override console logs
+        function overrideConsole() {
+            console.log = function(message) {
+                originalConsoleLog(message);
+                if (typeof message === 'object') {
+                    message = JSON.stringify(message);
+                }
+                debugWindow.value += `[LOG] ${message}\n`;
+                debugWindow.scrollTop = debugWindow.scrollHeight; // Auto-scroll to bottom
+            };
 
-        // Override console.error
-        console.error = function(message) {
-            originalConsoleError(message);
-            if (typeof message === 'object') {
-                message = JSON.stringify(message);
-            }
-            debugWindow.value += `[ERROR] ${message}\n`;
-            debugWindow.scrollTop = debugWindow.scrollHeight; // Auto-scroll to bottom
-        };
+            console.error = function(message) {
+                originalConsoleError(message);
+                if (typeof message === 'object') {
+                    message = JSON.stringify(message);
+                }
+                debugWindow.value += `[ERROR] ${message}\n`;
+                debugWindow.scrollTop = debugWindow.scrollHeight; // Auto-scroll to bottom
+            };
+        }
+
+        // Function to restore original console functions
+        function restoreConsole() {
+            console.log = originalConsoleLog;
+            console.error = originalConsoleError;
+        }
 
         // Function to display error messages
         function showError(message) {
@@ -385,7 +392,9 @@
                         stopScanning();
                     } finally {
                         // Schedule the next frame processing
-                        requestAnimationFrame(processFrame);
+                        if (scanning) {
+                            requestAnimationFrame(processFrame);
+                        }
                     }
                 }, 'image/png');
             } catch (err) {
@@ -402,6 +411,12 @@
                 showError('Scanner is already running.');
                 return;
             }
+
+            // Clear the debug window
+            debugWindow.value = '';
+
+            // Override console functions
+            overrideConsole();
 
             startButton.disabled = true;
             stopButton.disabled = true;
@@ -421,6 +436,7 @@
                 // Error already handled in initCamera
                 startButton.disabled = false;
                 startButton.innerText = 'Start Scanner';
+                restoreConsole(); // Restore console functions if failed to start
             }
         }
 
@@ -440,6 +456,9 @@
                 stream.getTracks().forEach(track => track.stop());
                 stream = null;
             }
+
+            // Restore original console functions
+            restoreConsole();
 
             // Optionally, clear the debugging canvas
             debugCtx.clearRect(0, 0, debugCanvas.width, debugCanvas.height);
@@ -461,6 +480,7 @@
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
             }
+            restoreConsole();
         });
     </script>
 </body>
