@@ -2,44 +2,407 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>OCR Camera Scanner</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Include Interact.js via CDN for touch gestures -->
-    <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
-    <!-- Include Tesseract.js via CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
-    <link rel="stylesheet" href="styles.css">
+    <title>Centered Rectangular OCR Scanner</title>
+    <!-- Tesseract.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@v4.0.2/dist/tesseract.min.js"></script>
+    <style>
+        /* Reset and Base Styles */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body, html {
+            height: 100%;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+
+        /* Container Styling */
+        #container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Video Styling */
+        #video {
+            width: 80%;
+            max-width: 800px;
+            border: 2px solid #333;
+            border-radius: 8px;
+            background-color: #000;
+        }
+
+        /* ROI Overlay Styling */
+        #overlay {
+            position: absolute;
+            width: 60%; /* 60% of the video width */
+            max-width: 600px; /* Maximum width */
+            height: 200px; /* Fixed height */
+            border: 4px solid red; /* Initial border color */
+            border-radius: 8px;
+            pointer-events: none; /* Allows clicks to pass through */
+            transition: border-color 0.3s ease;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%); /* Centers the overlay */
+            /* Removed display: none; to keep ROI visible at all times */
+        }
+
+        /* Controls Styling */
+        #controls {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        /* Button Styling */
+        #start-button, #stop-button, #ocr-button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 0 10px;
+            border: none;
+            border-radius: 4px;
+            color: #fff;
+        }
+        #start-button {
+            background-color: #28a745;
+        }
+        #start-button:disabled {
+            background-color: #94d3a2;
+            cursor: not-allowed;
+        }
+        #stop-button {
+            background-color: #dc3545;
+        }
+        #stop-button:disabled {
+            background-color: #e99a9f;
+            cursor: not-allowed;
+        }
+        #ocr-button {
+            background-color: #007bff;
+        }
+        #ocr-button:disabled {
+            background-color: #a3d1ff;
+            cursor: not-allowed;
+        }
+
+        /* Output Textarea Styling */
+        #output {
+            margin-top: 20px;
+            width: 80%;
+            max-width: 800px;
+            height: 150px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: none;
+            font-size: 14px;
+            overflow-y: auto;
+            background-color: #fff;
+        }
+
+        /* Error Message Styling */
+        #errorMsg {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(255,0,0,0.9);
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 4px;
+            display: none;
+            z-index: 10;
+            font-weight: bold;
+        }
+
+        /* Debugging Canvas Styling */
+        #debugCanvas {
+            margin-top: 20px;
+            border: 1px solid #000;
+            display: block; /* Visible for debugging */
+            max-width: 80%;
+            height: auto;
+        }
+    </style>
 </head>
 <body>
-    <h1>OCR Camera Scanner</h1>
-    <div id="controls">
-        <button id="startScanner">Start Scanner</button>
-        <button id="captureOCR" style="display: none;">OCR</button>
-        <select id="cameraSelect"></select>
-        <select id="resolutionSelect"></select>
-        <select id="languageSelect">
-            <option value="eng">English</option>
-            <!-- Add more language options as needed -->
-        </select>
-        <select id="workerSelect">
-            <option value="1">1 Worker</option>
-            <option value="2">2 Workers</option>
-            <option value="4">4 Workers</option>
-        </select>
-    </div>
-    <div id="scannerContainer">
-        <video id="cameraFeed" autoplay playsinline></video>
-        <div id="roi"></div>
-    </div>
-    <div id="outputContainer">
-        <h2>Extracted Text:</h2>
-        <textarea id="outputText" readonly></textarea>
-    </div>
-    <div id="debugContainer">
-        <h2>Debug Viewport:</h2>
+    <div id="errorMsg"></div>
+    <div id="container">
+        <video id="video" autoplay playsinline></video>
+        <div id="overlay"></div>
+        <div id="controls">
+            <button id="start-button">Start Scanner</button>
+            <button id="stop-button" disabled>Stop Scanner</button>
+            <button id="ocr-button" disabled>OCR</button> <!-- New OCR button -->
+            <textarea id="output" placeholder="Extracted text will appear here..." readonly></textarea>
+        </div>
+        <!-- Debugging Canvas -->
         <canvas id="debugCanvas"></canvas>
     </div>
-    <!-- Include the main script -->
-    <script src="script.js"></script>
+
+    <script>
+        // References to DOM elements
+        const video = document.getElementById('video');
+        const overlay = document.getElementById('overlay');
+        const startButton = document.getElementById('start-button');
+        const stopButton = document.getElementById('stop-button');
+        const ocrButton = document.getElementById('ocr-button'); // New OCR button
+        const output = document.getElementById('output');
+        const errorMsg = document.getElementById('errorMsg');
+        const debugCanvas = document.getElementById('debugCanvas');
+
+        let stream = null;
+        let scanning = false;
+        const MIN_CONFIDENCE = 60; // Minimum confidence percentage to accept OCR result
+
+        // Pre-created canvases for reuse
+        const videoCanvas = document.createElement('canvas');
+        const roiCanvas = document.createElement('canvas');
+        const scaledCanvas = document.createElement('canvas');
+        const debugCtx = debugCanvas.getContext('2d');
+
+        // Function to display error messages
+        function showError(message) {
+            console.error(`Error: ${message}`); // Log error to console
+            errorMsg.innerText = message;
+            errorMsg.style.display = 'block';
+            setTimeout(() => {
+                errorMsg.style.display = 'none';
+            }, 5000);
+        }
+
+        // Function to initialize camera
+        async function initCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { exact: "environment" } }, // Prefer rear camera
+                    audio: false
+                });
+                video.srcObject = stream;
+                console.log('Camera initialized successfully.');
+            } catch (err) {
+                console.error('Camera initialization failed:', err);
+                showError('Unable to access the rear camera. Please check permissions or try a different device.');
+                throw err; // Rethrow to handle in caller
+            }
+        }
+
+        // Function to preprocess image for better OCR accuracy
+        function preprocessImage(videoCanvas, width, height) {
+            const ctx = videoCanvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, width, height);
+            console.log('Image drawn on videoCanvas.');
+
+            // Get the image data from the canvas
+            let imageData = ctx.getImageData(0, 0, width, height);
+            let data = imageData.data;
+
+            // Enhance contrast (simple contrast adjustment)
+            const contrastFactor = 1.3; // Adjust as needed
+            for (let i = 0; i < data.length; i += 4) {
+                // Apply contrast formula
+                data[i] = ((data[i] - 128) * contrastFactor) + 128;     // R
+                data[i + 1] = ((data[i + 1] - 128) * contrastFactor) + 128; // G
+                data[i + 2] = ((data[i + 2] - 128) * contrastFactor) + 128; // B
+                // Clamp values to [0,255]
+                data[i] = Math.min(255, Math.max(0, data[i]));
+                data[i + 1] = Math.min(255, Math.max(0, data[i + 1]));
+                data[i + 2] = Math.min(255, Math.max(0, data[i + 2]));
+            }
+
+            // Put the processed data back onto the canvas
+            ctx.putImageData(imageData, 0, 0);
+            console.log('Image preprocessing complete.');
+        }
+
+        // Function to perform OCR
+        async function performOCR(blob) {
+            console.log('Starting OCR process.');
+            try {
+                const { data: { text, confidence } } = await Tesseract.recognize(
+                    blob,
+                    'eng',
+                    { 
+                        logger: m => console.log(`[Tesseract.js] ${m.status}: ${Math.round(m.progress * 100)}%`)
+                    }
+                );
+
+                console.log(`OCR Confidence: ${confidence}`);
+                console.log(`OCR Extracted Text: "${text.trim()}"`);
+
+                if (confidence >= MIN_CONFIDENCE && text.trim().length > 0) {
+                    overlay.style.borderColor = 'green';
+                    // Append the extracted text to the output field if not already present
+                    if (!output.value.includes(text.trim())) {
+                        output.value += text.trim() + '\n';
+                        console.log('Text appended to output.');
+                    }
+                } else {
+                    overlay.style.borderColor = 'red';
+                    console.log('OCR confidence too low or no text detected.');
+                }
+            } catch (err) {
+                console.error('Tesseract.js error:', err);
+                showError('An error occurred while processing the image.');
+                overlay.style.borderColor = 'red';
+            }
+        }
+
+        // Function to capture frame and perform OCR
+        function captureAndOCR() {
+            if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+                console.warn('Video not ready');
+                return;
+            }
+
+            console.log('Capturing frame for OCR.');
+
+            // Set canvas dimensions to match video
+            const videoWidth = video.videoWidth;
+            const videoHeight = video.videoHeight;
+            videoCanvas.width = videoWidth;
+            videoCanvas.height = videoHeight;
+            preprocessImage(videoCanvas, videoWidth, videoHeight);
+
+            // Define ROI dimensions based on overlay position
+            const overlayRect = overlay.getBoundingClientRect();
+            const videoRect = video.getBoundingClientRect();
+
+            // Calculate scaling factors between video display size and actual video size
+            const scaleX = videoWidth / videoRect.width;
+            const scaleY = videoHeight / videoRect.height;
+
+            // Calculate ROI coordinates relative to the video
+            const roiX = (overlayRect.left - videoRect.left) * scaleX;
+            const roiY = (overlayRect.top - videoRect.top) * scaleY;
+            const roiWidth = overlayRect.width * scaleX;
+            const roiHeight = overlayRect.height * scaleY;
+
+            console.log(`ROI Coordinates: (${roiX.toFixed(2)}, ${roiY.toFixed(2)}, ${roiWidth.toFixed(2)}, ${roiHeight.toFixed(2)})`);
+
+            // Ensure ROI is within the video frame bounds
+            if (roiX < 0 || roiY < 0 || (roiX + roiWidth) > videoWidth || (roiY + roiHeight) > videoHeight) {
+                console.warn('ROI is out of video frame bounds.');
+                showError('ROI is out of video frame bounds.');
+                return;
+            }
+
+            // Extract ROI from the processed image
+            roiCanvas.width = roiWidth;
+            roiCanvas.height = roiHeight;
+            const roiCtx = roiCanvas.getContext('2d');
+            roiCtx.drawImage(videoCanvas, roiX, roiY, roiWidth, roiHeight, 0, 0, roiWidth, roiHeight);
+            console.log('ROI extracted.');
+
+            // Further preprocess ROI: scale up to improve OCR accuracy
+            const scaleFactor = 1.5; // Adjust as needed
+            scaledCanvas.width = roiWidth * scaleFactor;
+            scaledCanvas.height = roiHeight * scaleFactor;
+            const scaledCtx = scaledCanvas.getContext('2d');
+            scaledCtx.imageSmoothingEnabled = true;
+            scaledCtx.imageSmoothingQuality = 'high';
+            scaledCtx.drawImage(roiCanvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
+            console.log('ROI scaled.');
+
+            // Update the debugging canvas
+            debugCanvas.width = scaledCanvas.width;
+            debugCanvas.height = scaledCanvas.height;
+            debugCtx.clearRect(0, 0, debugCanvas.width, debugCanvas.height);
+            debugCtx.drawImage(scaledCanvas, 0, 0);
+            console.log('Debugging canvas updated.');
+
+            // Convert the canvas to a blob for OCR
+            scaledCanvas.toBlob(async (blob) => {
+                if (blob) {
+                    console.log('Blob created for OCR.');
+                    await performOCR(blob);
+                } else {
+                    console.warn('Blob conversion failed.');
+                }
+            }, 'image/png');
+        }
+
+        // Function to start scanning
+        async function startScanning() {
+            if (scanning) return;
+            if (stream) {
+                showError('Scanner is already running.');
+                return;
+            }
+
+            startButton.disabled = true;
+            stopButton.disabled = true;
+            startButton.innerText = 'Starting...';
+            console.log('Initializing camera...');
+            try {
+                await initCamera();
+            } catch (err) {
+                // Error already handled in initCamera
+                startButton.disabled = false;
+                startButton.innerText = 'Start Scanner';
+                return;
+            }
+
+            scanning = true;
+            startButton.disabled = true;
+            stopButton.disabled = false;
+            ocrButton.disabled = false;
+            startButton.innerText = 'Scanning...';
+            output.value = ''; // Clear previous output
+            console.log('Scanning started.');
+        }
+
+        // Function to stop scanning
+        function stopScanning() {
+            if (!scanning) return;
+
+            scanning = false;
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            ocrButton.disabled = true;
+            startButton.innerText = 'Start Scanner';
+            overlay.style.borderColor = 'red';
+            console.log('Scanning stopped.');
+
+            // Stop all video tracks
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+
+            // Optionally, clear the debugging canvas
+            debugCtx.clearRect(0, 0, debugCanvas.width, debugCanvas.height);
+            console.log('Camera stream stopped and debugging canvas cleared.');
+        }
+
+        // Handle start button click
+        startButton.addEventListener('click', () => {
+            startScanning();
+        });
+
+        // Handle stop button click
+        stopButton.addEventListener('click', () => {
+            stopScanning();
+        });
+
+        // Handle OCR button click
+        ocrButton.addEventListener('click', () => {
+            captureAndOCR();
+        });
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        });
+    </script>
 </body>
 </html>
