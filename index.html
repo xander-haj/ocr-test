@@ -42,16 +42,10 @@
         /* ROI Overlay Styling */
         #overlay {
             position: absolute;
-            width: 60%; /* 60% of the video width */
-            max-width: 600px; /* Maximum width */
-            height: 200px; /* Fixed height */
             border: 4px solid red; /* Initial border color */
             border-radius: 8px;
             pointer-events: none; /* Allows clicks to pass through */
             transition: border-color 0.3s ease;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%); /* Centers the overlay */
             display: none; /* Hidden initially */
         }
 
@@ -147,6 +141,31 @@
             overflow-y: auto;
             background-color: #eaeaea;
         }
+
+        /* Loading Spinner */
+        #loadingSpinner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+            z-index: 20;
+        }
+
+        /* Spinner Style */
+        .spinner {
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid #333;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -154,20 +173,14 @@
     <div id="container">
         <video id="video" autoplay playsinline></video>
         <div id="overlay"></div>
+        <!-- Loading Spinner -->
+        <div id="loadingSpinner"><div class="spinner"></div></div>
         <div id="controls">
             <!-- Camera Selection -->
             <label for="cameraSelect">Camera:</label>
             <select id="cameraSelect"></select>
 
-            <!-- Resolution Selection -->
-            <label for="resolutionSelect">Resolution:</label>
-            <select id="resolutionSelect">
-                <option value="1920x1080">1920x1080</option>
-                <option value="1280x720">1280x720</option>
-                <option value="640x480">640x480</option>
-            </select>
-
-            <!-- Worker Controls -->
+            <!-- Language Selection -->
             <label for="languageSelect">Language:</label>
             <select id="languageSelect">
                 <option value="eng">English</option>
@@ -196,8 +209,8 @@
         const debugCanvas = document.getElementById('debugCanvas');
         const debugWindow = document.getElementById('debugger');
         const cameraSelect = document.getElementById('cameraSelect');
-        const resolutionSelect = document.getElementById('resolutionSelect');
         const languageSelect = document.getElementById('languageSelect');
+        const loadingSpinner = document.getElementById('loadingSpinner');
 
         let stream = null;
         let scanning = false;
@@ -206,7 +219,6 @@
         const MIN_CONFIDENCE = 60; // Minimum confidence percentage to accept OCR result
 
         let selectedCameraId = null;
-        let selectedResolution = null;
         let selectedLanguage = 'eng';
 
         // Pre-created canvases for reuse
@@ -264,15 +276,19 @@
 
                 cameraSelect.innerHTML = ''; // Clear existing options
 
-                videoDevices.forEach(device => {
+                videoDevices.forEach((device, index) => {
                     const option = document.createElement('option');
                     option.value = device.deviceId;
-                    option.text = device.label || `Camera ${cameraSelect.length + 1}`;
+                    option.text = device.label || `Camera ${index + 1}`;
                     cameraSelect.appendChild(option);
                 });
 
-                if (videoDevices.length > 0) {
-                    selectedCameraId = videoDevices[0].deviceId;
+                // Prioritize rear (environment) camera
+                const defaultCamera = videoDevices.find(device => device.label.toLowerCase().includes('back')) || videoDevices[0];
+
+                if (defaultCamera) {
+                    selectedCameraId = defaultCamera.deviceId;
+                    cameraSelect.value = selectedCameraId;
                 } else {
                     showError('No cameras found on this device.');
                     startButton.disabled = true;
@@ -286,7 +302,7 @@
             }
         }
 
-        // Function to initialize camera on page load
+        // Function to initialize camera permissions
         async function initCameraPermissions() {
             try {
                 await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
@@ -298,7 +314,7 @@
             }
         }
 
-        // Function to start the video stream with selected camera and resolution
+        // Function to start the video stream with selected camera
         async function startVideoStream() {
             try {
                 if (stream) {
@@ -306,12 +322,12 @@
                     stream.getTracks().forEach(track => track.stop());
                 }
 
-                const resolution = selectedResolution.split('x');
                 const constraints = {
                     video: {
                         deviceId: selectedCameraId ? { exact: selectedCameraId } : undefined,
-                        width: { exact: parseInt(resolution[0]) },
-                        height: { exact: parseInt(resolution[1]) }
+                        facingMode: 'environment', // Prefer rear camera
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
                     },
                     audio: false
                 };
@@ -319,11 +335,31 @@
                 stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
                 console.log('Video stream started with constraints:', constraints);
+
+                // Wait for video metadata to be loaded
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        console.log('Video metadata loaded.');
+                        resolve();
+                    };
+                });
             } catch (err) {
                 console.error('Error starting video stream:', err);
-                showError('Unable to start video stream with selected settings.');
+                showError('Unable to start video stream with selected settings. Please try a different camera.');
                 stopScanning();
+                throw err;
             }
+        }
+
+        // Function to adjust overlay size and position
+        function adjustOverlay() {
+            const videoRect = video.getBoundingClientRect();
+
+            // Set overlay dimensions relative to the video size
+            overlay.style.width = `${videoRect.width * 0.6}px`; // 60% of video width
+            overlay.style.height = `${videoRect.height * 0.25}px`; // 25% of video height
+            overlay.style.top = `${videoRect.top + (videoRect.height - overlay.offsetHeight) / 2}px`;
+            overlay.style.left = `${videoRect.left + (videoRect.width - overlay.offsetWidth) / 2}px`;
         }
 
         // Function to preprocess image for better OCR accuracy
@@ -333,25 +369,8 @@
                 ctx.drawImage(video, 0, 0, width, height);
                 console.log('Image drawn on videoCanvas.');
 
-                // Get the image data from the canvas
-                let imageData = ctx.getImageData(0, 0, width, height);
-                let data = imageData.data;
+                // Optionally, add image preprocessing steps here (contrast, grayscale, etc.)
 
-                // Enhance contrast (simple contrast adjustment)
-                const contrastFactor = 1.3; // Adjust as needed
-                for (let i = 0; i < data.length; i += 4) {
-                    // Apply contrast formula
-                    data[i] = ((data[i] - 128) * contrastFactor) + 128;     // R
-                    data[i + 1] = ((data[i + 1] - 128) * contrastFactor) + 128; // G
-                    data[i + 2] = ((data[i + 2] - 128) * contrastFactor) + 128; // B
-                    // Clamp values to [0,255]
-                    data[i] = Math.min(255, Math.max(0, data[i]));
-                    data[i + 1] = Math.min(255, Math.max(0, data[i + 1]));
-                    data[i + 2] = Math.min(255, Math.max(0, data[i + 2]));
-                }
-
-                // Put the processed data back onto the canvas
-                ctx.putImageData(imageData, 0, 0);
                 console.log('Image preprocessing complete.');
             } catch (err) {
                 console.error('Error in preprocessImage:', err);
@@ -364,6 +383,8 @@
         async function performOCR(blob) {
             console.log('Starting OCR process.');
             try {
+                loadingSpinner.style.display = 'block'; // Show loading spinner
+
                 const { data: { text, confidence } } = await Tesseract.recognize(
                     blob,
                     selectedLanguage,
@@ -390,6 +411,8 @@
                 console.error('Tesseract.js error:', err);
                 showError('An error occurred while processing the image.');
                 overlay.style.borderColor = 'red';
+            } finally {
+                loadingSpinner.style.display = 'none'; // Hide loading spinner
             }
         }
 
@@ -404,13 +427,23 @@
                 }
                 lastScanTime = now;
 
-                if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+                if (video.readyState < video.HAVE_ENOUGH_DATA) {
                     console.warn('Video not ready');
                     requestAnimationFrame(processFrame);
                     return;
                 }
 
+                // Ensure video dimensions are available
+                if (video.videoWidth === 0 || video.videoHeight === 0) {
+                    console.warn('Video dimensions not available yet.');
+                    requestAnimationFrame(processFrame);
+                    return;
+                }
+
                 console.log('Processing a new frame for OCR.');
+
+                // Adjust overlay if needed
+                adjustOverlay();
 
                 // Set canvas dimensions to match video
                 const videoWidth = video.videoWidth;
@@ -438,7 +471,7 @@
                 // Ensure ROI is within the video frame bounds
                 if (roiX < 0 || roiY < 0 || (roiX + roiWidth) > videoWidth || (roiY + roiHeight) > videoHeight) {
                     console.warn('ROI is out of video frame bounds.');
-                    showError('ROI is out of video frame bounds.');
+                    showError('ROI is out of video frame bounds. Adjust the overlay or resize the window.');
                     stopScanning();
                     return;
                 }
@@ -500,7 +533,6 @@
 
             // Get selected options
             selectedCameraId = cameraSelect.value;
-            selectedResolution = resolutionSelect.value;
             selectedLanguage = languageSelect.value;
 
             // Clear the debug window
@@ -516,9 +548,12 @@
 
             try {
                 await startVideoStream();
+
                 video.style.display = 'block'; // Show the video element
                 overlay.style.display = 'block'; // Show the overlay
                 debugCanvas.style.display = 'block'; // Show the debug canvas
+
+                adjustOverlay(); // Adjust overlay size and position
 
                 scanning = true;
                 startButton.disabled = true;
@@ -592,15 +627,6 @@
             }
         });
 
-        // Handle resolution selection change
-        resolutionSelect.addEventListener('change', () => {
-            selectedResolution = resolutionSelect.value;
-            console.log('Resolution changed:', selectedResolution);
-            if (scanning) {
-                startScanning(); // Restart scanning with new resolution
-            }
-        });
-
         // Handle language selection change
         languageSelect.addEventListener('change', () => {
             selectedLanguage = languageSelect.value;
@@ -608,11 +634,17 @@
             // No need to restart scanning, language will be applied in next OCR
         });
 
+        // Adjust overlay on window resize
+        window.addEventListener('resize', () => {
+            if (scanning) {
+                adjustOverlay();
+            }
+        });
+
         // Initialize camera permissions and populate device options on page load
         window.addEventListener('DOMContentLoaded', async () => {
             await initCameraPermissions();
             await populateCameraOptions();
-            selectedResolution = resolutionSelect.value;
             selectedLanguage = languageSelect.value;
         });
 
