@@ -47,17 +47,17 @@
             border: 2px solid #333;
             border-radius: 8px;
             background-color: #000;
-            /* Removed display: none; so the video can appear once loaded */
+            display: none; /* Hidden initially */
         }
 
         /* ROI Overlay Styling */
         #overlay {
             position: absolute;
-            border: 4px solid red; 
+            border: 4px solid red; /* Initial border color */
             border-radius: 8px;
-            pointer-events: none; 
+            pointer-events: none; /* Allows clicks to pass through */
             transition: border-color 0.3s ease;
-            /* Removed display: none; so the overlay is available once loaded */
+            display: none; /* Hidden initially */
         }
 
         /* Controls Styling */
@@ -133,7 +133,7 @@
         #debugCanvas {
             margin-top: 20px;
             border: 1px solid #000;
-            display: none; /* Hidden initially, will be shown when scanning starts */
+            display: none; /* Hidden initially */
             max-width: 80%;
             height: auto;
         }
@@ -348,6 +348,7 @@
 
             resolutionSelect.innerHTML = ''; // Clear existing options
 
+            // Since we cannot reliably get supported resolutions, we'll use common ones
             commonResolutions.forEach(res => {
                 const option = document.createElement('option');
                 option.value = `${res.width}x${res.height}`;
@@ -459,7 +460,7 @@
 
                 console.log('Processing a new frame for OCR.');
 
-                // Adjust overlay if needed
+                // Adjust overlay if needed (overlay may also be adjusted after video play)
                 adjustOverlay();
 
                 // Set canvas dimensions to match video
@@ -567,13 +568,18 @@
                 video.srcObject = stream;
                 console.log('Video stream started with constraints:', constraints);
 
-                // Wait for video metadata to be loaded, then play the video
+                // Wait for video metadata to be loaded
                 return new Promise((resolve) => {
                     video.onloadedmetadata = () => {
                         console.log('Video metadata loaded.');
                         video.play().then(() => {
                             console.log('Video playing.');
-                            adjustOverlay(); // Adjust overlay after video is playing
+                            // Show elements only after we start scanning
+                            video.style.display = 'block';
+                            overlay.style.display = 'block';
+                            debugCanvas.style.display = 'block';
+                            // Adjust overlay after video is actually playing and visible
+                            adjustOverlay();
                             resolve();
                         }).catch(err => {
                             console.error('Error playing video:', err);
@@ -618,11 +624,6 @@
 
                 await startVideoStream();
 
-                // Make elements visible for scanning
-                video.style.display = 'block';
-                overlay.style.display = 'block';
-                debugCanvas.style.display = 'block';
-
                 scanning = true;
                 startButton.disabled = true;
                 stopButton.disabled = false;
@@ -651,7 +652,7 @@
             overlay.style.borderColor = 'red';
             console.log('Scanning stopped.');
 
-            // Hide elements
+            // Hide the video and overlay elements
             video.style.display = 'none';
             overlay.style.display = 'none';
             debugCanvas.style.display = 'none';
