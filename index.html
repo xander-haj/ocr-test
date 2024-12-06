@@ -557,7 +557,7 @@
 
                 const constraints = {
                     video: {
-                        deviceId: selectedCameraId ? { ideal: selectedCameraId } : undefined,
+                        deviceId: selectedCameraId ? { exact: selectedCameraId } : undefined,
                         width: { ideal: width },
                         height: { ideal: height }
                     },
@@ -588,14 +588,6 @@
         async function startScanning() {
             if (scanning) return;
 
-            // Get selected options
-            selectedCameraId = cameraSelect.value;
-            selectedResolution = resolutionSelect.value;
-            selectedLanguage = languageSelect.value;
-
-            // Clear the debug window
-            debugWindow.value = '';
-
             // Override console functions
             overrideConsole();
 
@@ -607,9 +599,16 @@
             try {
                 // Request camera permissions here if not already granted
                 if (!cameraOptionsPopulated) {
+                    // Request permissions and get media stream to obtain device labels
                     await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     await populateCameraOptions();
+                    cameraOptionsPopulated = true;
                 }
+
+                // Get selected options
+                selectedCameraId = cameraSelect.value;
+                selectedResolution = resolutionSelect.value;
+                selectedLanguage = languageSelect.value;
 
                 await startVideoStream();
 
@@ -714,19 +713,8 @@
             }
         });
 
-        // Initialize camera options on page load
-        window.addEventListener('DOMContentLoaded', async () => {
-            // Request camera permissions when the page loads to populate device labels
-            try {
-                await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                await populateCameraOptions();
-                cameraOptionsPopulated = true;
-            } catch (err) {
-                console.error('Camera permission denied:', err);
-                showError('Camera access was denied. Please allow camera permissions.');
-                startButton.disabled = true;
-            }
-
+        // Initialize resolution and language options on page load
+        window.addEventListener('DOMContentLoaded', () => {
             populateResolutionOptions();
             selectedResolution = resolutionSelect.value;
             selectedLanguage = languageSelect.value;
